@@ -21,7 +21,7 @@ type queryBuilderItem struct {
 }
 
 // QueryBuilder is used to efficiently build dynamic queries and variables
-// It helps construct multiple queries to a single request that need to be conditionally added
+// It helps construct multiple queries to a single request that needs to be conditionally added
 type QueryBuilder struct {
 	queries   []queryBuilderItem
 	variables map[string]interface{}

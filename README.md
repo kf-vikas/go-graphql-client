@@ -832,7 +832,7 @@ func (c *Client) NamedMutateRaw(ctx context.Context, name string, q interface{},
 
 ### Dynamic query builder
 
-You might need to dynamically multiple queries or mutations in a single request. It's not very convenient with static structures.
+You might need to dynamically multiple queries or mutations in a request. It isn't convenient with static structures.
 `QueryBuilder` helps us construct many queries flexibly.
 
 For example, to make the following GraphQL mutation:
