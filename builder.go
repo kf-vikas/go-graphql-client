@@ -1,6 +1,7 @@
 package graphql
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -20,9 +21,10 @@ type queryBuilderItem struct {
 	requiredVars []string
 }
 
-// QueryBuilder is used to efficiently build dynamic queries and variables
+// Builder is used to efficiently build dynamic queries and variables
 // It helps construct multiple queries to a single request that needs to be conditionally added
-type QueryBuilder struct {
+type Builder struct {
+	context   context.Context
 	queries   []queryBuilderItem
 	variables map[string]interface{}
 }
@@ -31,16 +33,26 @@ type QueryBuilder struct {
 // that includes the query string without fields and the binding type
 type QueryBinding [2]interface{}
 
-// NewQueryBuilder creates an empty QueryBuilder instance
-func NewQueryBuilder() QueryBuilder {
-	return QueryBuilder{
+// NewBuilder creates an empty Builder instance
+func NewBuilder() Builder {
+	return Builder{
 		variables: make(map[string]interface{}),
 	}
 }
 
-// Query returns the new QueryBuilder with the inputted query
-func (b QueryBuilder) Query(query string, binding interface{}) QueryBuilder {
-	return QueryBuilder{
+// Bind returns the new Builder with the inputted query
+func (b Builder) Context(ctx context.Context) Builder {
+	return Builder{
+		context:   ctx,
+		queries:   b.queries,
+		variables: b.variables,
+	}
+}
+
+// Bind returns the new Builder with a new query and target data binding
+func (b Builder) Bind(query string, binding interface{}) Builder {
+	return Builder{
+		context: b.context,
 		queries: append(b.queries, queryBuilderItem{
 			query,
 			binding,
@@ -50,24 +62,26 @@ func (b QueryBuilder) Query(query string, binding interface{}) QueryBuilder {
 	}
 }
 
-// Variables returns the new QueryBuilder with the inputted variables
-func (b QueryBuilder) Variable(key string, value interface{}) QueryBuilder {
-	return QueryBuilder{
+// Variables returns the new Builder with the inputted variables
+func (b Builder) Variable(key string, value interface{}) Builder {
+	return Builder{
+		context:   b.context,
 		queries:   b.queries,
 		variables: setMapValue(b.variables, key, value),
 	}
 }
 
-// Variables returns the new QueryBuilder with the inputted variables
-func (b QueryBuilder) Variables(variables map[string]interface{}) QueryBuilder {
-	return QueryBuilder{
+// Variables returns the new Builder with the inputted variables
+func (b Builder) Variables(variables map[string]interface{}) Builder {
+	return Builder{
+		context:   b.context,
 		queries:   b.queries,
 		variables: mergeMap(b.variables, variables),
 	}
 }
 
-// RemoveQuery returns the new QueryBuilder with query items and related variables removed
-func (b QueryBuilder) Remove(query string, extra ...string) QueryBuilder {
+// Unbind returns the new Builder with query items and related variables removed
+func (b Builder) Unbind(query string, extra ...string) Builder {
 	var newQueries []queryBuilderItem
 	newVars := make(map[string]interface{})
 
@@ -85,16 +99,17 @@ func (b QueryBuilder) Remove(query string, extra ...string) QueryBuilder {
 		}
 	}
 
-	return QueryBuilder{
+	return Builder{
+		context:   b.context,
 		queries:   newQueries,
 		variables: newVars,
 	}
 }
 
-// RemoveQuery returns the new QueryBuilder with query items removed
+// RemoveQuery returns the new Builder with query items removed
 // this method only remove query items only,
 // to remove both query and variables, use Remove instead
-func (b QueryBuilder) RemoveQuery(query string, extra ...string) QueryBuilder {
+func (b Builder) RemoveQuery(query string, extra ...string) Builder {
 	var newQueries []queryBuilderItem
 
 	for _, q := range b.queries {
@@ -103,14 +118,15 @@ func (b QueryBuilder) RemoveQuery(query string, extra ...string) QueryBuilder {
 		}
 	}
 
-	return QueryBuilder{
+	return Builder{
+		context:   b.context,
 		queries:   newQueries,
 		variables: b.variables,
 	}
 }
 
-// RemoveQuery returns the new QueryBuilder with variable fields removed
-func (b QueryBuilder) RemoveVariable(key string, extra ...string) QueryBuilder {
+// RemoveQuery returns the new Builder with variable fields removed
+func (b Builder) RemoveVariable(key string, extra ...string) Builder {
 	newVars := make(map[string]interface{})
 	for k, v := range b.variables {
 		if k != key && !sliceStringContains(extra, k) {
@@ -118,14 +134,15 @@ func (b QueryBuilder) RemoveVariable(key string, extra ...string) QueryBuilder {
 		}
 	}
 
-	return QueryBuilder{
+	return Builder{
+		context:   b.context,
 		queries:   b.queries,
 		variables: newVars,
 	}
 }
 
 // Build query and variable interfaces
-func (b QueryBuilder) Build() ([]QueryBinding, map[string]interface{}, error) {
+func (b Builder) Build() ([]QueryBinding, map[string]interface{}, error) {
 	if len(b.queries) == 0 {
 		return nil, nil, errBuildQueryRequired
 	}
@@ -158,6 +175,32 @@ func (b QueryBuilder) Build() ([]QueryBinding, map[string]interface{}, error) {
 		query = append(query, [2]interface{}{q.query, q.binding})
 	}
 	return query, b.variables, nil
+}
+
+// Query builds parameters and executes the GraphQL query request
+func (b Builder) Query(c *Client, options ...Option) error {
+	q, v, err := b.Build()
+	if err != nil {
+		return err
+	}
+	ctx := b.context
+	if ctx == nil {
+		ctx = context.TODO()
+	}
+	return c.Query(ctx, &q, v, options...)
+}
+
+// Mutate builds parameters and executes the GraphQL query request
+func (b Builder) Mutate(c *Client, options ...Option) error {
+	q, v, err := b.Build()
+	if err != nil {
+		return err
+	}
+	ctx := b.context
+	if ctx == nil {
+		ctx = context.TODO()
+	}
+	return c.Mutate(ctx, &q, v, options...)
 }
 
 func setMapValue(src map[string]interface{}, key string, value interface{}) map[string]interface{} {

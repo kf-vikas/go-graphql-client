@@ -833,7 +833,7 @@ func (c *Client) NamedMutateRaw(ctx context.Context, name string, q interface{},
 ### Dynamic query builder
 
 You might need to dynamically multiple queries or mutations in a request. It isn't convenient with static structures.
-`QueryBuilder` helps us construct many queries flexibly.
+`Builder` helps us construct many queries flexibly.
 
 For example, to make the following GraphQL mutation:
 
@@ -867,7 +867,7 @@ var groups []struct {
 var userByPk User
 var topUsers []User
 
-query, variables, err := graphql.NewQueryBuilder().
+builder := graphql.NewBuilder().
 	Query("userByPk(userId: $userId)", &userByPk).
 	Query("groups(disabled: $disabled)", &groups).
 	Query("topUsers: users(limit: $limit)", &topUsers).
@@ -876,8 +876,8 @@ query, variables, err := graphql.NewQueryBuilder().
 		"disabled": false,
 		"limit": 5,
 	})
-	Build()
 
+query, variables, err := builder.Build()
 if err != nil {
 	return err
 }
@@ -886,6 +886,14 @@ err = client.Query(context.Background(), query, variables)
 if err != nil {
 	return err
 }
+
+// or use Query / Mutate shortcut methods
+err = builder.Query(client)
+if err != nil {
+	return err
+}
+
+
 ```
 
 ### Debugging and Unit test

@@ -1,7 +1,6 @@
 package graphql_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,7 +10,7 @@ import (
 	"github.com/hasura/go-graphql-client"
 )
 
-func TestQueryBuilder(t *testing.T) {
+func TestBuilder(t *testing.T) {
 
 	queryStruct1 := func() interface{} {
 		m := struct {
@@ -85,9 +84,9 @@ func TestQueryBuilder(t *testing.T) {
 	}
 
 	for i, f := range fixtures {
-		builder := graphql.QueryBuilder{}
+		builder := graphql.Builder{}
 		for q, b := range f.queries {
-			builder = builder.Query(q, b)
+			builder = builder.Bind(q, b)
 		}
 		for k, v := range f.variables {
 			builder = builder.Variable(k, v)
@@ -117,7 +116,7 @@ func TestQueryBuilder(t *testing.T) {
 	}
 }
 
-func TestQueryBuilder_remove(t *testing.T) {
+func TestBuilder_remove(t *testing.T) {
 
 	var queryStruct1 struct {
 		ID   string
@@ -155,9 +154,9 @@ func TestQueryBuilder_remove(t *testing.T) {
 		},
 	}
 
-	builder := graphql.QueryBuilder{}
+	builder := graphql.Builder{}
 	for q, b := range fixture.queries {
-		builder = builder.Query(q, b)
+		builder = builder.Bind(q, b)
 	}
 	for k, v := range fixture.variables {
 		builder = builder.Variable(k, v)
@@ -190,7 +189,7 @@ func TestQueryBuilder_remove(t *testing.T) {
 		"where":     nil,
 	}, "remove query failed")
 
-	builder = builder.Remove("personPoint(where: $where)")
+	builder = builder.Unbind("personPoint(where: $where)")
 	q3, v3, e3 := builder.Build()
 
 	if e3 != nil {
@@ -207,8 +206,8 @@ func TestQueryBuilder_remove(t *testing.T) {
 
 }
 
-// Test query QueryBuilder output
-func TestQueryBuilder_Query(t *testing.T) {
+// Test Builder query output
+func TestBuilder_Query(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/graphql", func(w http.ResponseWriter, req *http.Request) {
 		body := mustRead(req.Body)
@@ -225,12 +224,10 @@ func TestQueryBuilder_Query(t *testing.T) {
 		Name string `graphql:"name"`
 	}
 
-	bq, vars, err := graphql.NewQueryBuilder().Query("user(id: $id)", &user).Variable("id", "1").Build()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = client.Query(context.Background(), &bq, vars)
+	err := graphql.NewBuilder().
+		Bind("user(id: $id)", &user).
+		Variable("id", "1").
+		Query(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,8 +240,42 @@ func TestQueryBuilder_Query(t *testing.T) {
 	}
 }
 
-// Test query QueryBuilder output with multiple queries
-func TestQueryBuilder_MultipleQueries(t *testing.T) {
+// Test Builder mutation output
+func TestBuilder_Mutate(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/graphql", func(w http.ResponseWriter, req *http.Request) {
+		body := mustRead(req.Body)
+		if got, want := body, `{"query":"mutation ($id:String!){user(id: $id){id,name}}","variables":{"id":"1"}}`+"\n"; got != want {
+			t.Errorf("got body: %v, want %v", got, want)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		mustWrite(w, `{"data": {"user": {"id": "1", "name": "Gopher"}}}`)
+	})
+	client := graphql.NewClient("/graphql", &http.Client{Transport: localRoundTripper{handler: mux}})
+
+	var user struct {
+		ID   string `graphql:"id"`
+		Name string `graphql:"name"`
+	}
+
+	err := graphql.NewBuilder().
+		Bind("user(id: $id)", &user).
+		Variable("id", "1").
+		Mutate(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := user.Name, "Gopher"; got != want {
+		t.Errorf("got user.Name: %q, want: %q", got, want)
+	}
+	if got, want := user.ID, "1"; got != want {
+		t.Errorf("got user.ID: %q, want: %q", got, want)
+	}
+}
+
+// Test query Builder output with multiple queries
+func TestBuilder_MultipleQueries(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/graphql", func(w http.ResponseWriter, req *http.Request) {
 		body := mustRead(req.Body)
@@ -267,12 +298,7 @@ func TestQueryBuilder_MultipleQueries(t *testing.T) {
 		Points []string
 	}, 0)
 
-	bq, vars, err := graphql.NewQueryBuilder().Query("user", &user).Query("person", &q2).Build()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = client.Query(context.Background(), &bq, vars)
+	err := graphql.NewBuilder().Bind("user", &user).Bind("person", &q2).Query(client)
 	if err != nil {
 		t.Fatal(err)
 	}
